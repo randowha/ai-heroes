@@ -13,7 +13,7 @@ import { Card, CardContent, CardHeader } from "~/components/ui/card";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
-import { Textarea } from "~/components/ui/textarea";
+import { RichTextEditor } from "~/components/rich-text-editor";
 import { ArrowLeft, ClipboardList, Save } from "lucide-react";
 import { data } from "react-router";
 
@@ -212,17 +212,15 @@ export default function InstructorLessonEditor({
           <CardHeader>
             <h2 className="text-lg font-semibold">Lesson Content</h2>
             <p className="text-sm text-muted-foreground">
-              Write your lesson content in HTML. A rich text editor is coming
-              soon.
+              Use the toolbar to format text, add headings, lists, code blocks,
+              images, and links.
             </p>
           </CardHeader>
           <CardContent>
-            <Textarea
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              rows={15}
-              className="font-mono text-sm"
-              placeholder="Enter lesson content (HTML)..."
+            <RichTextEditor
+              content={content}
+              onChange={setContent}
+              placeholder="Start writing your lesson content..."
             />
           </CardContent>
         </Card>
