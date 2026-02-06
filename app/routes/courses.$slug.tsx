@@ -1,6 +1,7 @@
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { Link, useFetcher } from "react-router";
 import { toast } from "sonner";
+import { marked } from "marked";
 import type { Route } from "./+types/courses.$slug";
 import { getCourseBySlug, getCourseWithDetails, getLessonCountForCourse } from "~/services/courseService";
 import { isUserEnrolled, enrollUser } from "~/services/enrollmentService";
@@ -145,6 +146,11 @@ export default function CourseDetail({ loaderData }: Route.ComponentProps) {
   const fetcher = useFetcher();
   const isEnrolling = fetcher.state !== "idle";
 
+  const salesCopyHtml = useMemo(() => {
+    if (!course.salesCopy) return null;
+    return marked.parse(course.salesCopy) as string;
+  }, [course.salesCopy]);
+
   useEffect(() => {
     if (fetcher.state === "idle" && fetcher.data?.success) {
       toast.success("Successfully enrolled in this course!");
@@ -153,6 +159,24 @@ export default function CourseDetail({ loaderData }: Route.ComponentProps) {
       toast.error(fetcher.data.error);
     }
   }, [fetcher.state, fetcher.data]);
+
+  const totalDuration = course.modules.reduce(
+    (sum, mod) => sum + mod.lessons.reduce((s, l) => s + (l.durationMinutes ?? 0), 0),
+    0
+  );
+
+  const enrollButton = currentUserId ? (
+    <fetcher.Form method="post">
+      <input type="hidden" name="intent" value="enroll" />
+      <Button size="lg" className="w-full" disabled={isEnrolling}>
+        {isEnrolling ? "Enrolling..." : "Enroll Now — Free"}
+      </Button>
+    </fetcher.Form>
+  ) : (
+    <p className="text-sm text-muted-foreground">
+      Select a user from the DevUI panel to enroll.
+    </p>
+  );
 
   return (
     <div className="p-6 lg:p-8">
@@ -165,46 +189,43 @@ export default function CourseDetail({ loaderData }: Route.ComponentProps) {
         <span className="text-foreground">{course.title}</span>
       </nav>
 
-      {/* Course Header */}
-      <div className="mb-8 grid gap-6 lg:grid-cols-3">
-        <div className="lg:col-span-2">
-          {course.coverImageUrl && (
-            <div className="mb-6 aspect-video overflow-hidden rounded-lg">
-              <img
-                src={course.coverImageUrl}
-                alt={course.title}
-                className="h-full w-full object-cover"
-              />
+      {enrolled ? (
+        /* ── Enrolled View: existing layout ── */
+        <>
+          <div className="mb-8 grid gap-6 lg:grid-cols-3">
+            <div className="lg:col-span-2">
+              {course.coverImageUrl && (
+                <div className="mb-6 aspect-video overflow-hidden rounded-lg">
+                  <img
+                    src={course.coverImageUrl}
+                    alt={course.title}
+                    className="h-full w-full object-cover"
+                  />
+                </div>
+              )}
+              <div className="mb-2 text-sm font-medium text-primary">
+                {course.categoryName}
+              </div>
+              <h1 className="mb-3 text-3xl font-bold">{course.title}</h1>
+              <p className="mb-4 text-muted-foreground">{course.description}</p>
+              <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                <span className="flex items-center gap-1">
+                  <User className="size-4" />
+                  {course.instructorName}
+                </span>
+                <span className="flex items-center gap-1">
+                  <BookOpen className="size-4" />
+                  {lessonCount} lessons
+                </span>
+              </div>
             </div>
-          )}
-          <div className="mb-2 text-sm font-medium text-primary">
-            {course.categoryName}
-          </div>
-          <h1 className="mb-3 text-3xl font-bold">{course.title}</h1>
-          <p className="mb-4 text-muted-foreground">{course.description}</p>
-          <div className="flex items-center gap-4 text-sm text-muted-foreground">
-            <span className="flex items-center gap-1">
-              <User className="size-4" />
-              {course.instructorName}
-            </span>
-            <span className="flex items-center gap-1">
-              <BookOpen className="size-4" />
-              {lessonCount} lessons
-            </span>
-          </div>
-        </div>
 
-        {/* Enrollment Card */}
-        <div>
-          <Card>
-            <CardHeader>
-              <h2 className="text-lg font-semibold">
-                {enrolled ? "Your Progress" : "Get Started"}
-              </h2>
-            </CardHeader>
-            <CardContent>
-              {enrolled ? (
-                <div>
+            <div>
+              <Card>
+                <CardHeader>
+                  <h2 className="text-lg font-semibold">Your Progress</h2>
+                </CardHeader>
+                <CardContent>
                   <div className="mb-2 flex items-center justify-between text-sm">
                     <span>{progress}% complete</span>
                   </div>
@@ -226,92 +247,191 @@ export default function CourseDetail({ loaderData }: Route.ComponentProps) {
                       </Button>
                     </Link>
                   )}
-                </div>
-              ) : currentUserId ? (
-                <fetcher.Form method="post">
-                  <input type="hidden" name="intent" value="enroll" />
-                  <Button className="w-full" disabled={isEnrolling}>
-                    {isEnrolling ? "Enrolling..." : "Enroll Now"}
-                  </Button>
-                </fetcher.Form>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  Select a user from the DevUI panel to enroll.
-                </p>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-
-      {/* Course Structure */}
-      <div>
-        <h2 className="mb-4 text-2xl font-bold">Course Content</h2>
-        {course.modules.length === 0 ? (
-          <p className="text-muted-foreground">
-            No content has been added to this course yet.
-          </p>
-        ) : (
-          <div className="space-y-4">
-            {course.modules.map((mod) => (
-              <Card key={mod.id}>
-                <CardHeader>
-                  <h3 className="font-semibold">{mod.title}</h3>
-                  <p className="text-sm text-muted-foreground">
-                    {mod.lessons.length} lessons
-                  </p>
-                </CardHeader>
-                <CardContent>
-                  <ul className="space-y-2">
-                    {mod.lessons.map((lesson) => {
-                      const status = lessonProgressMap[lesson.id];
-                      const isCompleted = status === LessonProgressStatus.Completed;
-                      const isInProgress = status === LessonProgressStatus.InProgress;
-
-                      return (
-                        <li key={lesson.id}>
-                          {enrolled ? (
-                            <Link
-                              to={`/courses/${course.slug}/lessons/${lesson.id}`}
-                              className="flex items-center gap-3 rounded-md px-3 py-2 text-sm hover:bg-muted"
-                            >
-                              {isCompleted ? (
-                                <CheckCircle2 className="size-4 shrink-0 text-green-500" />
-                              ) : isInProgress ? (
-                                <PlayCircle className="size-4 shrink-0 text-blue-500" />
-                              ) : (
-                                <Circle className="size-4 shrink-0 text-muted-foreground" />
-                              )}
-                              <span className="flex-1">{lesson.title}</span>
-                              {lesson.durationMinutes && (
-                                <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                                  <Clock className="size-3" />
-                                  {formatDuration(lesson.durationMinutes, true, false, false)}
-                                </span>
-                              )}
-                            </Link>
-                          ) : (
-                            <div className="flex items-center gap-3 px-3 py-2 text-sm">
-                              <Circle className="size-4 shrink-0 text-muted-foreground" />
-                              <span className="flex-1">{lesson.title}</span>
-                              {lesson.durationMinutes && (
-                                <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                                  <Clock className="size-3" />
-                                  {formatDuration(lesson.durationMinutes, true, false, false)}
-                                </span>
-                              )}
-                            </div>
-                          )}
-                        </li>
-                      );
-                    })}
-                  </ul>
                 </CardContent>
               </Card>
-            ))}
+            </div>
           </div>
-        )}
-      </div>
+
+          <CourseContent
+            course={course}
+            enrolled={enrolled}
+            lessonProgressMap={lessonProgressMap}
+          />
+        </>
+      ) : (
+        /* ── Landing Page View: two-column layout ── */
+        <>
+          {/* Hero section */}
+          <div className="mb-8">
+            {course.coverImageUrl && (
+              <div className="mb-6 aspect-video max-h-64 overflow-hidden rounded-lg">
+                <img
+                  src={course.coverImageUrl}
+                  alt={course.title}
+                  className="h-full w-full object-cover"
+                />
+              </div>
+            )}
+            <div className="mb-2 text-sm font-medium text-primary">
+              {course.categoryName}
+            </div>
+            <h1 className="mb-3 text-4xl font-bold">{course.title}</h1>
+            <p className="mb-4 text-lg text-muted-foreground">{course.description}</p>
+            <div className="flex items-center gap-4 text-sm text-muted-foreground">
+              <span className="flex items-center gap-1">
+                <User className="size-4" />
+                {course.instructorName}
+              </span>
+              <span className="flex items-center gap-1">
+                <BookOpen className="size-4" />
+                {lessonCount} lessons
+              </span>
+              {totalDuration > 0 && (
+                <span className="flex items-center gap-1">
+                  <Clock className="size-4" />
+                  {formatDuration(totalDuration, true, false, false)} total
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Two-column: sales copy left, enrollment + outline right */}
+          <div className="grid gap-8 lg:grid-cols-3">
+            {/* Left column: sales copy */}
+            <div className="lg:col-span-2">
+              {salesCopyHtml ? (
+                <div
+                  className="prose prose-neutral dark:prose-invert max-w-none"
+                  dangerouslySetInnerHTML={{ __html: salesCopyHtml }}
+                />
+              ) : (
+                <p className="text-muted-foreground">{course.description}</p>
+              )}
+
+              {/* Bottom enroll CTA */}
+              <div className="mt-8 rounded-lg border bg-muted/50 p-6">
+                <h3 className="mb-2 text-lg font-semibold">Ready to get started?</h3>
+                <p className="mb-4 text-sm text-muted-foreground">
+                  Join this course and start learning today.
+                </p>
+                {enrollButton}
+              </div>
+            </div>
+
+            {/* Right column: enrollment card + course outline */}
+            <div className="space-y-6">
+              <Card className="sticky top-6">
+                <CardHeader>
+                  <h2 className="text-lg font-semibold">Get Started</h2>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {enrollButton}
+                  <div className="space-y-2 text-sm text-muted-foreground">
+                    <div className="flex items-center gap-2">
+                      <BookOpen className="size-4" />
+                      <span>{lessonCount} lessons</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Clock className="size-4" />
+                      <span>{formatDuration(totalDuration, true, false, false)} total</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <User className="size-4" />
+                      <span>Taught by {course.instructorName}</span>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <CourseContent
+                course={course}
+                enrolled={enrolled}
+                lessonProgressMap={lessonProgressMap}
+              />
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function CourseContent({
+  course,
+  enrolled,
+  lessonProgressMap,
+}: {
+  course: { slug: string; modules: Array<{ id: number; title: string; lessons: Array<{ id: number; title: string; durationMinutes: number | null }> }> };
+  enrolled: boolean;
+  lessonProgressMap: Record<number, string>;
+}) {
+  return (
+    <div>
+      <h2 className="mb-4 text-2xl font-bold">Course Content</h2>
+      {course.modules.length === 0 ? (
+        <p className="text-muted-foreground">
+          No content has been added to this course yet.
+        </p>
+      ) : (
+        <div className="space-y-4">
+          {course.modules.map((mod) => (
+            <Card key={mod.id}>
+              <CardHeader>
+                <h3 className="font-semibold">{mod.title}</h3>
+                <p className="text-sm text-muted-foreground">
+                  {mod.lessons.length} lessons
+                </p>
+              </CardHeader>
+              <CardContent>
+                <ul className="space-y-2">
+                  {mod.lessons.map((lesson) => {
+                    const status = lessonProgressMap[lesson.id];
+                    const isCompleted = status === LessonProgressStatus.Completed;
+                    const isInProgress = status === LessonProgressStatus.InProgress;
+
+                    return (
+                      <li key={lesson.id}>
+                        {enrolled ? (
+                          <Link
+                            to={`/courses/${course.slug}/lessons/${lesson.id}`}
+                            className="flex items-center gap-3 rounded-md px-3 py-2 text-sm hover:bg-muted"
+                          >
+                            {isCompleted ? (
+                              <CheckCircle2 className="size-4 shrink-0 text-green-500" />
+                            ) : isInProgress ? (
+                              <PlayCircle className="size-4 shrink-0 text-blue-500" />
+                            ) : (
+                              <Circle className="size-4 shrink-0 text-muted-foreground" />
+                            )}
+                            <span className="flex-1">{lesson.title}</span>
+                            {lesson.durationMinutes && (
+                              <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                                <Clock className="size-3" />
+                                {formatDuration(lesson.durationMinutes, true, false, false)}
+                              </span>
+                            )}
+                          </Link>
+                        ) : (
+                          <div className="flex items-center gap-3 px-3 py-2 text-sm">
+                            <Circle className="size-4 shrink-0 text-muted-foreground" />
+                            <span className="flex-1">{lesson.title}</span>
+                            {lesson.durationMinutes && (
+                              <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                                <Clock className="size-3" />
+                                {formatDuration(lesson.durationMinutes, true, false, false)}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

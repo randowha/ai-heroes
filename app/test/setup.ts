@@ -35,6 +35,7 @@ export function createTestDb() {
     title TEXT NOT NULL,
     slug TEXT NOT NULL UNIQUE,
     description TEXT NOT NULL,
+    sales_copy TEXT,
     instructor_id INTEGER NOT NULL REFERENCES users(id),
     category_id INTEGER NOT NULL REFERENCES categories(id),
     status TEXT NOT NULL,

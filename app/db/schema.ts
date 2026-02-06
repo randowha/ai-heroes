@@ -49,6 +49,7 @@ export const courses = sqliteTable("courses", {
   title: text("title").notNull(),
   slug: text("slug").notNull().unique(),
   description: text("description").notNull(),
+  salesCopy: text("sales_copy"),
   instructorId: integer("instructor_id")
     .notNull()
     .references(() => users.id),
