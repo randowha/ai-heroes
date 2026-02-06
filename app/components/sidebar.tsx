@@ -11,6 +11,7 @@ import {
   Moon,
   Sun,
   LogOut,
+  Settings,
 } from "lucide-react";
 
 interface CurrentUser {
@@ -156,6 +157,13 @@ export function Sidebar({ currentUser }: SidebarProps) {
               <div className="truncate text-sm font-medium">{currentUser.name}</div>
               <div className="truncate text-xs capitalize text-sidebar-foreground/50">{currentUser.role}</div>
             </div>
+            <NavLink
+              to="/settings"
+              title="Settings"
+              className="rounded-md p-1 text-sidebar-foreground/50 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            >
+              <Settings className="size-4" />
+            </NavLink>
             <Form method="post" action="/api/logout">
               <button
                 type="submit"

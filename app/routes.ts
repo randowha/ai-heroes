@@ -15,6 +15,7 @@ export default [
     route("instructor/:courseId/students", "routes/instructor.$courseId.students.tsx"),
     route("admin/users", "routes/admin.users.tsx"),
     route("admin/courses", "routes/admin.courses.tsx"),
+    route("settings", "routes/settings.tsx"),
   ]),
   route("api/switch-user", "routes/api.switch-user.ts"),
   route("api/logout", "routes/api.logout.ts"),
