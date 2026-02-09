@@ -73,7 +73,10 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     );
   }
 
-  if (isUserEnrolled(currentUserId, course.id)) {
+  const url = new URL(request.url);
+  const mode = url.searchParams.get("mode");
+
+  if (isUserEnrolled(currentUserId, course.id) && mode !== "team") {
     throw redirect(`/courses/${slug}?already_enrolled=1`);
   }
 
