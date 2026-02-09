@@ -7,6 +7,9 @@ import { buildCourseQuery, getLessonCountForCourse, getAllCategories } from "~/s
 import { CourseStatus } from "~/db/schema";
 import { BookOpen, GraduationCap, Users, ArrowRight, User, Moon, Sun } from "lucide-react";
 import { CourseImage } from "~/components/course-image";
+import { DevUI } from "~/components/dev-ui";
+import { getAllUsers, getUserById } from "~/services/userService";
+import { getCurrentUserId } from "~/lib/session";
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -15,23 +18,30 @@ export function meta({}: Route.MetaArgs) {
   ];
 }
 
-export function loader() {
+export async function loader({ request }: Route.LoaderArgs) {
   const courses = buildCourseQuery(null, null, CourseStatus.Published, "newest", 50, 0);
   const featured = courses.slice(0, 3).map((course) => ({
     ...course,
     lessonCount: getLessonCountForCourse(course.id),
   }));
   const categories = getAllCategories();
+  const users = getAllUsers();
+  const currentUserId = await getCurrentUserId(request);
+  const currentUser = currentUserId ? getUserById(currentUserId) : null;
 
   return {
     featuredCourses: featured,
     totalCourses: courses.length,
     totalCategories: categories.length,
+    users: users.map((u) => ({ id: u.id, name: u.name, role: u.role })),
+    currentUser: currentUser
+      ? { id: currentUser.id, name: currentUser.name, role: currentUser.role }
+      : null,
   };
 }
 
 export default function Home({ loaderData }: Route.ComponentProps) {
-  const { featuredCourses, totalCourses, totalCategories } = loaderData;
+  const { featuredCourses, totalCourses, totalCategories, users, currentUser } = loaderData;
   const [isDark, setIsDark] = useState(false);
 
   useEffect(() => {
@@ -178,6 +188,8 @@ export default function Home({ loaderData }: Route.ComponentProps) {
           Ralph Course Platform
         </div>
       </footer>
+
+      <DevUI users={users} currentUser={currentUser} />
     </div>
   );
 }
