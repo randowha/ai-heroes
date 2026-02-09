@@ -42,6 +42,7 @@ export function createTestDb() {
     status TEXT NOT NULL,
     cover_image_url TEXT,
     price INTEGER NOT NULL DEFAULT 0,
+    ppp_enabled INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`);
@@ -71,6 +72,15 @@ export function createTestDb() {
     course_id INTEGER NOT NULL REFERENCES courses(id),
     enrolled_at TEXT NOT NULL DEFAULT (datetime('now')),
     completed_at TEXT
+  )`);
+
+  testDb.run(sql`CREATE TABLE purchases (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    course_id INTEGER NOT NULL REFERENCES courses(id),
+    price_paid INTEGER NOT NULL,
+    country TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`);
 
   testDb.run(sql`CREATE TABLE lesson_progress (

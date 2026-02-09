@@ -43,6 +43,7 @@ async function seed() {
     DROP TABLE IF EXISTS quiz_questions;
     DROP TABLE IF EXISTS quizzes;
     DROP TABLE IF EXISTS lesson_progress;
+    DROP TABLE IF EXISTS purchases;
     DROP TABLE IF EXISTS enrollments;
     DROP TABLE IF EXISTS lessons;
     DROP TABLE IF EXISTS modules;
@@ -79,6 +80,7 @@ async function seed() {
       status TEXT NOT NULL,
       cover_image_url TEXT,
       price INTEGER NOT NULL DEFAULT 0,
+      ppp_enabled INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -108,6 +110,15 @@ async function seed() {
       course_id INTEGER NOT NULL REFERENCES courses(id),
       enrolled_at TEXT NOT NULL,
       completed_at TEXT
+    );
+
+    CREATE TABLE purchases (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      course_id INTEGER NOT NULL REFERENCES courses(id),
+      price_paid INTEGER NOT NULL,
+      country TEXT,
+      created_at TEXT NOT NULL
     );
 
     CREATE TABLE lesson_progress (

@@ -60,6 +60,7 @@ export const courses = sqliteTable("courses", {
   status: text("status").notNull().$type<CourseStatus>(),
   coverImageUrl: text("cover_image_url"),
   price: integer("price").notNull().default(0),
+  pppEnabled: integer("ppp_enabled", { mode: "boolean" }).notNull().default(true),
   createdAt: text("created_at")
     .notNull()
     .$defaultFn(() => new Date().toISOString()),
@@ -175,6 +176,21 @@ export const quizAnswers = sqliteTable("quiz_answers", {
   selectedOptionId: integer("selected_option_id")
     .notNull()
     .references(() => quizOptions.id),
+});
+
+export const purchases = sqliteTable("purchases", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: integer("user_id")
+    .notNull()
+    .references(() => users.id),
+  courseId: integer("course_id")
+    .notNull()
+    .references(() => courses.id),
+  pricePaid: integer("price_paid").notNull(),
+  country: text("country"),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
 });
 
 export const videoWatchEvents = sqliteTable("video_watch_events", {

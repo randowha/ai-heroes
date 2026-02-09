@@ -80,6 +80,7 @@ export function buildCourseQuery(
       status: courses.status,
       coverImageUrl: courses.coverImageUrl,
       price: courses.price,
+      pppEnabled: courses.pppEnabled,
       createdAt: courses.createdAt,
       updatedAt: courses.updatedAt,
       instructorName: users.name,
@@ -121,6 +122,7 @@ export function getCourseWithDetails(id: number) {
       status: courses.status,
       coverImageUrl: courses.coverImageUrl,
       price: courses.price,
+      pppEnabled: courses.pppEnabled,
       createdAt: courses.createdAt,
       updatedAt: courses.updatedAt,
       instructorName: users.name,
@@ -245,6 +247,15 @@ export function updateCoursePrice(id: number, price: number) {
   return db
     .update(courses)
     .set({ price, updatedAt: new Date().toISOString() })
+    .where(eq(courses.id, id))
+    .returning()
+    .get();
+}
+
+export function updateCoursePppEnabled(id: number, pppEnabled: boolean) {
+  return db
+    .update(courses)
+    .set({ pppEnabled, updatedAt: new Date().toISOString() })
     .where(eq(courses.id, id))
     .returning()
     .get();
