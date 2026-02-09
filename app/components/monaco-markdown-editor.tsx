@@ -51,38 +51,42 @@ export function MonacoMarkdownEditor({
     });
     monaco.editor.setTheme("cadence-dark");
 
-    // Ctrl+S / Cmd+S to format with Prettier then save
-    editor.addCommand(
-      monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS,
-      async () => {
-        const currentValue = editor.getValue();
+    // Register Prettier as Monaco's native document formatter for Markdown
+    monaco.languages.registerDocumentFormattingEditProvider("markdown", {
+      provideDocumentFormattingEdits: async (model: Monaco.editor.ITextModel) => {
         try {
           const [prettier, markdownPlugin] = await Promise.all([
             import("prettier/standalone"),
             import("prettier/plugins/markdown"),
           ]);
-          const formatted = await prettier.format(currentValue, {
+          const formatted = await prettier.format(model.getValue(), {
             parser: "markdown",
             plugins: [markdownPlugin.default],
             proseWrap: "preserve",
             tabWidth: 2,
           });
-          // Only update if formatting actually changed something
-          if (formatted !== currentValue) {
-            const position = editor.getPosition();
-            editor.executeEdits("prettier", [
-              {
-                range: editor.getModel()!.getFullModelRange(),
-                text: formatted,
-              },
-            ]);
-            if (position) {
-              editor.setPosition(position);
-            }
-            onChangeRef.current(formatted);
-          }
+          return [
+            {
+              text: formatted,
+              range: model.getFullModelRange(),
+            },
+          ];
         } catch {
-          // If Prettier fails, just save as-is
+          return [];
+        }
+      },
+    });
+
+    // Ctrl+S / Cmd+S to format with Prettier then save
+    editor.addCommand(
+      monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS,
+      async () => {
+        const formatAction = editor.getAction(
+          "editor.action.formatDocument"
+        );
+        if (formatAction) {
+          await formatAction.run();
+          onChangeRef.current(editor.getValue());
         }
         onSaveRef.current?.();
       }
