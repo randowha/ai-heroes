@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Link, useFetcher, useNavigate } from "react-router";
 import { toast } from "sonner";
 import type { Route } from "./+types/courses.$slug.lessons.$lessonId";
@@ -10,6 +10,14 @@ import { getLessonById } from "~/services/lessonService";
 import { getModuleById } from "~/services/moduleService";
 import { getCurrentUserId } from "~/lib/session";
 import { isUserEnrolled } from "~/services/enrollmentService";
+import {
+  getCommentsForLesson,
+  getCommentById,
+  createComment,
+  editComment,
+  deleteComment,
+} from "~/services/commentService";
+import { getUserById } from "~/services/userService";
 import {
   getLessonProgress,
   getLessonProgressForCourse,
@@ -26,7 +34,7 @@ import {
   getBestAttempt,
 } from "~/services/quizService";
 import { computeResult } from "~/services/quizScoringService";
-import { LessonProgressStatus } from "~/db/schema";
+import { LessonProgressStatus, UserRole } from "~/db/schema";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent } from "~/components/ui/card";
 import {
@@ -40,8 +48,12 @@ import {
   Github,
   HelpCircle,
   MapPin,
+  MessageSquare,
+  Pencil,
   PlayCircle,
   ShieldAlert,
+  Trash2,
+  X,
   XCircle,
   Trophy,
   RotateCcw,
@@ -138,9 +150,15 @@ export async function loader({ params, request }: Route.LoaderArgs) {
   let lastWatchPosition = 0;
   let watchProgress = 0;
   let lessonProgressMap: Record<number, string> = {};
+  let canModerateComments = false;
 
   if (currentUserId) {
     enrolled = isUserEnrolled(currentUserId, course.id);
+    const currentUser = getUserById(currentUserId);
+    canModerateComments =
+      currentUser?.role === UserRole.Admin ||
+      (currentUser?.role === UserRole.Instructor &&
+        course.instructorId === currentUserId);
 
     if (enrolled) {
       // Mark lesson as in-progress when viewed
@@ -203,6 +221,9 @@ export async function loader({ params, request }: Route.LoaderArgs) {
   const nextLesson =
     currentIndex < allLessons.length - 1 ? allLessons[currentIndex + 1] : null;
 
+  // Fetch comments for this lesson
+  const comments = getCommentsForLesson(lessonId);
+
   // Check for quiz attached to this lesson
   const quizRecord = getQuizByLessonId(lessonId);
   let quiz: {
@@ -253,6 +274,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
       id: courseWithDetails.id,
       title: courseWithDetails.title,
       slug: courseWithDetails.slug,
+      instructorId: course.instructorId,
     },
     curriculum: courseWithDetails.modules.map((m) => ({
       id: m.id,
@@ -281,6 +303,8 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     pppBlocked,
     pppBlockedCountry,
     pppPurchaseCountry,
+    comments,
+    canModerateComments,
   };
 }
 
@@ -329,6 +353,68 @@ export async function action({ params, request }: Route.ActionArgs) {
     }
 
     return { quizResult: result };
+  }
+
+  if (intent === "create-comment") {
+    const currentUserForCreate = getUserById(currentUserId);
+    const canModerateForCreate =
+      currentUserForCreate?.role === UserRole.Admin ||
+      (currentUserForCreate?.role === UserRole.Instructor &&
+        course.instructorId === currentUserId);
+
+    if (!isUserEnrolled(currentUserId, course.id) && !canModerateForCreate) {
+      throw data("You must be enrolled to comment", { status: 403 });
+    }
+    const content = String(formData.get("content") ?? "").trim();
+    if (!content) {
+      throw data("Comment cannot be empty", { status: 400 });
+    }
+    const lesson = getLessonById(lessonId);
+    if (!lesson) throw data("Lesson not found", { status: 404 });
+    createComment(currentUserId, lessonId, content);
+    return { success: true };
+  }
+
+  if (intent === "edit-comment") {
+    const commentId = Number(formData.get("commentId"));
+    if (isNaN(commentId)) throw data("Invalid comment ID", { status: 400 });
+    const content = String(formData.get("content") ?? "").trim();
+    if (!content) throw data("Comment cannot be empty", { status: 400 });
+
+    const comment = getCommentById(commentId);
+    if (!comment) throw data("Comment not found", { status: 404 });
+
+    const currentUser = getUserById(currentUserId);
+    const canModerate =
+      currentUser?.role === UserRole.Admin ||
+      (currentUser?.role === UserRole.Instructor &&
+        course.instructorId === currentUserId);
+
+    if (comment.userId !== currentUserId && !canModerate) {
+      throw data("Not authorized to edit this comment", { status: 403 });
+    }
+    editComment(commentId, content, currentUserId);
+    return { success: true };
+  }
+
+  if (intent === "delete-comment") {
+    const commentId = Number(formData.get("commentId"));
+    if (isNaN(commentId)) throw data("Invalid comment ID", { status: 400 });
+
+    const comment = getCommentById(commentId);
+    if (!comment) throw data("Comment not found", { status: 404 });
+
+    const currentUser = getUserById(currentUserId);
+    const canModerate =
+      currentUser?.role === UserRole.Admin ||
+      (currentUser?.role === UserRole.Instructor &&
+        course.instructorId === currentUserId);
+
+    if (comment.userId !== currentUserId && !canModerate) {
+      throw data("Not authorized to delete this comment", { status: 403 });
+    }
+    deleteComment(commentId);
+    return { success: true };
   }
 
   throw data("Invalid action", { status: 400 });
@@ -382,6 +468,8 @@ export default function LessonViewer({ loaderData }: Route.ComponentProps) {
     pppBlocked,
     pppBlockedCountry,
     pppPurchaseCountry,
+    comments,
+    canModerateComments,
   } = loaderData;
   const [autoplay, toggleAutoplay] = useAutoplay();
   const fetcher = useFetcher({ key: `mark-complete-${lesson.id}` });
@@ -545,6 +633,15 @@ export default function LessonViewer({ loaderData }: Route.ComponentProps) {
               isSubmitting={isSubmittingQuiz}
             />
           )}
+
+          {/* Comments */}
+          <CommentsSection
+            lessonId={lesson.id}
+            comments={comments}
+            currentUserId={currentUserId}
+            isEnrolled={enrolled}
+            canModerate={canModerateComments}
+          />
 
           {/* Mark Complete / Up Next */}
           {enrolled && currentUserId && (
@@ -1011,6 +1108,217 @@ function QuizSection({
         </quizFetcher.Form>
       </CardContent>
     </Card>
+  );
+}
+
+type Comment = {
+  id: number;
+  userId: number;
+  content: string;
+  editedAt: string | null;
+  createdAt: string;
+  authorName: string;
+  authorAvatarUrl: string | null;
+};
+
+function CommentsSection({
+  lessonId,
+  comments,
+  currentUserId,
+  isEnrolled,
+  canModerate,
+}: {
+  lessonId: number;
+  comments: Comment[];
+  currentUserId: number | null;
+  isEnrolled: boolean;
+  canModerate: boolean;
+}) {
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editContent, setEditContent] = useState("");
+  const newCommentRef = useRef<HTMLTextAreaElement>(null);
+  const commentFetcher = useFetcher({ key: `comments-${lessonId}` });
+
+  const isSubmitting = commentFetcher.state !== "idle";
+
+  useEffect(() => {
+    if (commentFetcher.state === "idle" && commentFetcher.data?.success) {
+      setEditingId(null);
+      setEditContent("");
+      if (newCommentRef.current) {
+        newCommentRef.current.value = "";
+      }
+    }
+  }, [commentFetcher.state, commentFetcher.data]);
+
+  function startEdit(comment: Comment) {
+    setEditingId(comment.id);
+    setEditContent(comment.content);
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setEditContent("");
+  }
+
+  const canActOnComment = (comment: Comment) =>
+    currentUserId !== null &&
+    (comment.userId === currentUserId || canModerate);
+
+  return (
+    <div className="mb-8">
+      <div className="mb-4 flex items-center gap-2">
+        <MessageSquare className="size-5 text-muted-foreground" />
+        <h2 className="text-lg font-semibold">
+          Comments
+          {comments.length > 0 && (
+            <span className="ml-2 text-sm font-normal text-muted-foreground">
+              ({comments.length})
+            </span>
+          )}
+        </h2>
+      </div>
+
+      {/* Comment list */}
+      {comments.length > 0 ? (
+        <div className="mb-6 space-y-4">
+          {comments.map((comment) => (
+            <div key={comment.id} className="rounded-lg border p-4">
+              <div className="mb-2 flex items-start justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  {comment.authorAvatarUrl ? (
+                    <img
+                      src={comment.authorAvatarUrl}
+                      alt={comment.authorName}
+                      className="size-7 rounded-full object-cover"
+                    />
+                  ) : (
+                    <div className="flex size-7 items-center justify-center rounded-full bg-muted text-xs font-medium">
+                      {comment.authorName.charAt(0).toUpperCase()}
+                    </div>
+                  )}
+                  <span className="text-sm font-medium">
+                    {comment.authorName}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {new Date(comment.createdAt).toLocaleDateString(undefined, {
+                      year: "numeric",
+                      month: "short",
+                      day: "numeric",
+                    })}
+                  </span>
+                  {comment.editedAt && (
+                    <span
+                      className="text-xs text-muted-foreground"
+                      title={`Edited ${new Date(comment.editedAt).toLocaleString()}`}
+                    >
+                      (edited)
+                    </span>
+                  )}
+                </div>
+
+                {canActOnComment(comment) && editingId !== comment.id && (
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => startEdit(comment)}
+                      className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                      title="Edit comment"
+                    >
+                      <Pencil className="size-3.5" />
+                    </button>
+                    <commentFetcher.Form method="post">
+                      <input
+                        type="hidden"
+                        name="intent"
+                        value="delete-comment"
+                      />
+                      <input
+                        type="hidden"
+                        name="commentId"
+                        value={comment.id}
+                      />
+                      <button
+                        type="submit"
+                        className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-red-600"
+                        title="Delete comment"
+                        disabled={isSubmitting}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    </commentFetcher.Form>
+                  </div>
+                )}
+              </div>
+
+              {editingId === comment.id ? (
+                <commentFetcher.Form method="post" className="mt-2">
+                  <input type="hidden" name="intent" value="edit-comment" />
+                  <input type="hidden" name="commentId" value={comment.id} />
+                  <textarea
+                    name="content"
+                    value={editContent}
+                    onChange={(e) => setEditContent(e.target.value)}
+                    rows={3}
+                    className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                    autoFocus
+                  />
+                  <div className="mt-2 flex gap-2">
+                    <Button
+                      type="submit"
+                      size="sm"
+                      disabled={isSubmitting || !editContent.trim()}
+                    >
+                      {isSubmitting ? "Saving..." : "Save"}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={cancelEdit}
+                    >
+                      <X className="mr-1 size-3.5" />
+                      Cancel
+                    </Button>
+                  </div>
+                </commentFetcher.Form>
+              ) : (
+                <p className="text-sm text-foreground">{comment.content}</p>
+              )}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="mb-6 text-sm text-muted-foreground">
+          No comments yet. Be the first to leave one!
+        </p>
+      )}
+
+      {/* New comment form */}
+      {currentUserId && (isEnrolled || canModerate) ? (
+        <commentFetcher.Form method="post">
+          <input type="hidden" name="intent" value="create-comment" />
+          <textarea
+            ref={newCommentRef}
+            name="content"
+            placeholder="Leave a comment..."
+            rows={3}
+            className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+          <div className="mt-2">
+            <Button type="submit" size="sm" disabled={isSubmitting}>
+              {isSubmitting ? "Posting..." : "Post Comment"}
+            </Button>
+          </div>
+        </commentFetcher.Form>
+      ) : !currentUserId ? (
+        <p className="text-sm text-muted-foreground">
+          <Link to="/login" className="text-primary hover:underline">
+            Sign in
+          </Link>{" "}
+          to leave a comment.
+        </p>
+      ) : null}
+    </div>
   );
 }
 
