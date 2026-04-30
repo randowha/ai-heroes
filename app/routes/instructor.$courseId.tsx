@@ -36,6 +36,13 @@ import {
 import { getEnrollmentCountForCourse, getCourseEnrolledStudents } from "~/services/enrollmentService";
 import { calculateProgress } from "~/services/progressService";
 import { getQuizByLessonId, getBestAttempt } from "~/services/quizService";
+import {
+  getRevenueByMonth,
+  getEnrollmentsByMonth,
+  getLessonCompletionRates,
+  getQuizPassRates,
+  getDropOffLesson,
+} from "~/services/analyticsService";
 import { getCurrentUserId } from "~/lib/session";
 import { getUserById } from "~/services/userService";
 import { CourseStatus, UserRole } from "~/db/schema";
@@ -69,6 +76,7 @@ import {
   Award,
   Globe,
   FileText,
+  TrendingUp,
 } from "lucide-react";
 import { data, isRouteErrorResponse } from "react-router";
 import { z } from "zod";
@@ -185,7 +193,13 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 
   const quizCount = lessonQuizzes.length;
 
-  return { course, lessonCount, enrollmentCount, students, quizCount };
+  const revenueByMonth = getRevenueByMonth({ courseId });
+  const enrollmentsByMonth = getEnrollmentsByMonth({ courseId });
+  const lessonCompletionRates = getLessonCompletionRates({ courseId });
+  const quizPassRates = getQuizPassRates({ courseId });
+  const dropOffLesson = getDropOffLesson({ courseId });
+
+  return { course, lessonCount, enrollmentCount, students, quizCount, revenueByMonth, enrollmentsByMonth, lessonCompletionRates, quizPassRates, dropOffLesson };
 }
 
 export async function action({ params, request }: Route.ActionArgs) {
@@ -968,6 +982,32 @@ function AddLessonForm({ moduleId }: { moduleId: number }) {
   );
 }
 
+function BarChart({
+  data,
+  formatValue,
+}: {
+  data: { label: string; value: number }[];
+  formatValue: (v: number) => string;
+}) {
+  const max = Math.max(...data.map((d) => d.value), 1);
+  return (
+    <div className="flex items-end gap-1" style={{ height: "120px" }}>
+      {data.map((d) => (
+        <div key={d.label} className="flex flex-1 flex-col items-center gap-1">
+          <div
+            className="w-full rounded-t bg-primary/70 transition-all"
+            style={{ height: `${(d.value / max) * 100}%` }}
+            title={formatValue(d.value)}
+          />
+          <span className="text-[9px] text-muted-foreground leading-none">
+            {d.label.slice(5)}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function statusBadgeColor(status: string) {
   switch (status) {
     case CourseStatus.Published:
@@ -984,7 +1024,7 @@ function statusBadgeColor(status: string) {
 export default function InstructorCourseEditor({
   loaderData,
 }: Route.ComponentProps) {
-  const { course, lessonCount, enrollmentCount, students, quizCount } = loaderData;
+  const { course, lessonCount, enrollmentCount, students, quizCount, revenueByMonth, enrollmentsByMonth, lessonCompletionRates, quizPassRates, dropOffLesson } = loaderData;
   const statusFetcher = useFetcher();
   const reorderFetcher = useFetcher();
   const lessonReorderFetcher = useFetcher();
@@ -1192,6 +1232,10 @@ export default function InstructorCourseEditor({
           <TabsTrigger value="students">
             <Users className="size-4" />
             Students
+          </TabsTrigger>
+          <TabsTrigger value="analytics">
+            <TrendingUp className="size-4" />
+            Analytics
           </TabsTrigger>
         </TabsList>
 
@@ -1651,6 +1695,150 @@ export default function InstructorCourseEditor({
               </CardContent>
             </Card>
           )}
+        </TabsContent>
+
+        {/* Analytics Tab */}
+        <TabsContent value="analytics" className="mt-6 space-y-8">
+          {/* Section A: Revenue */}
+          <Card>
+            <CardHeader>
+              <h2 className="text-lg font-semibold">Revenue</h2>
+              <p className="text-sm text-muted-foreground">
+                Total revenue (last 12 months):{" "}
+                <span className="font-medium text-foreground">
+                  ${(revenueByMonth.reduce((s, r) => s + r.totalCents, 0) / 100).toFixed(2)}
+                </span>
+              </p>
+            </CardHeader>
+            <CardContent>
+              {revenueByMonth.every((r) => r.totalCents === 0) ? (
+                <p className="text-sm text-muted-foreground">No purchases yet.</p>
+              ) : (
+                <BarChart
+                  data={revenueByMonth.map((r) => ({ label: r.month, value: r.totalCents }))}
+                  formatValue={(v) => `$${(v / 100).toFixed(2)}`}
+                />
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Section B: Enrollments */}
+          <Card>
+            <CardHeader>
+              <h2 className="text-lg font-semibold">Enrollments</h2>
+              <p className="text-sm text-muted-foreground">
+                New enrollments (last 12 months):{" "}
+                <span className="font-medium text-foreground">
+                  {enrollmentsByMonth.reduce((s, r) => s + r.count, 0)}
+                </span>
+              </p>
+            </CardHeader>
+            <CardContent>
+              {enrollmentsByMonth.every((r) => r.count === 0) ? (
+                <p className="text-sm text-muted-foreground">No enrollments yet.</p>
+              ) : (
+                <BarChart
+                  data={enrollmentsByMonth.map((r) => ({ label: r.month, value: r.count }))}
+                  formatValue={(v) => String(v)}
+                />
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Section C: Lesson Completion Rates */}
+          <Card>
+            <CardHeader>
+              <h2 className="text-lg font-semibold">Lesson Completion Rates</h2>
+            </CardHeader>
+            <CardContent>
+              {lessonCompletionRates.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No progress data yet.</p>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border">
+                      <th className="pb-2 text-left font-medium text-muted-foreground">Lesson</th>
+                      <th className="pb-2 text-left font-medium text-muted-foreground">Module</th>
+                      <th className="pb-2 text-left font-medium text-muted-foreground w-40">Completion</th>
+                      <th className="pb-2 text-right font-medium text-muted-foreground">%</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {lessonCompletionRates.map((row) => {
+                      const isDropOff = dropOffLesson?.lessonId === row.lessonId;
+                      return (
+                        <tr key={row.lessonId} className="border-b border-border last:border-0">
+                          <td className="py-2 pr-3">
+                            <span>{row.lessonTitle}</span>
+                            {isDropOff && (
+                              <span className="ml-2 inline-flex items-center rounded-full bg-yellow-100 px-2 py-0.5 text-xs font-medium text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400">
+                                Drop-off point
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-2 pr-3 text-muted-foreground">{row.moduleTitle}</td>
+                          <td className="py-2 pr-3">
+                            <div className="h-2 w-36 rounded-full bg-muted">
+                              <div
+                                className="h-2 rounded-full bg-primary transition-all"
+                                style={{ width: `${row.completionRate}%` }}
+                              />
+                            </div>
+                          </td>
+                          <td className="py-2 text-right font-medium">{row.completionRate}%</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Section D: Quiz Pass Rates */}
+          <Card>
+            <CardHeader>
+              <h2 className="text-lg font-semibold">Quiz Pass Rates</h2>
+            </CardHeader>
+            <CardContent>
+              {quizPassRates.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No quizzes in this course.</p>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border">
+                      <th className="pb-2 text-left font-medium text-muted-foreground">Quiz</th>
+                      <th className="pb-2 text-left font-medium text-muted-foreground">Lesson</th>
+                      <th className="pb-2 text-right font-medium text-muted-foreground">Attempts</th>
+                      <th className="pb-2 text-right font-medium text-muted-foreground">Pass rate</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {quizPassRates.map((row) => {
+                      const badgeClass =
+                        row.passRate >= 70
+                          ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
+                          : row.passRate >= 50
+                          ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400"
+                          : "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400";
+                      return (
+                        <tr key={row.quizId} className="border-b border-border last:border-0">
+                          <td className="py-2 pr-3">{row.quizTitle}</td>
+                          <td className="py-2 pr-3 text-muted-foreground">{row.lessonTitle}</td>
+                          <td className="py-2 pr-3 text-right">{row.totalAttempts}</td>
+                          <td className="py-2 text-right">
+                            <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${badgeClass}`}>
+                              {row.passRate}%
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
     </div>
